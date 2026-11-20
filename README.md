@@ -6,6 +6,7 @@
 > แล้วส่งต่อไปที่แผนที่ของ Next.js แบบเรียลไทม์ผ่าน WebSocket
 > รันทั้งระบบด้วย `docker compose up --build` แล้วเปิดหน้าแผนที่ (`/`), หน้าออเดอร์ (`/orders`),
 > ตัวจำลองคนขับ (`/simulate`) และหน้าลูกค้า (`/track/<orderId>`)
+> Postgres กับ Redis ไม่ได้เปิดพอร์ตออกมาที่เครื่อง เพื่อไม่ให้ชนกับฐานข้อมูลที่รันอยู่แล้วบน 5432/6379
 > ระบบนี้ยังไม่มีการล็อกอิน — ตั้งใจไว้เป็นขั้นถัดไป และไม่ควรเปิดสู่อินเทอร์เน็ตสาธารณะ
 
 Lane is a small parcel desk: create orders, assign a driver, and watch that driver move on a map. The Go API is the part meant for reading and changing. The Next.js app is a dispatch screen plus a public tracking page.
@@ -42,9 +43,43 @@ Stop and delete the database volume with:
 docker compose down -v
 ```
 
-Ports used on the host: `3000` (web), `8080` (API), `5432` (Postgres), `6379` (Redis).
+Host ports for a normal `docker compose up` are only `3000` (web) and `8080` (API). Postgres and Redis stay on the Compose network (`db:5432`, `redis:6379`). They are not published on the machine, so an existing database on `5432` or `6379` does not block startup. Publishing those ports used to fail the bind on Docker Desktop and leave the containers with no network, which showed up as `connect postgres: context deadline exceeded` and `bad address 'db'`.
 
-`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are baked in when the frontend image is built. The defaults point at `localhost`, which is correct when the browser runs on the same machine as Compose.
+`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are baked in when the frontend image is built. The defaults point at `localhost:8080`, which is correct when the browser runs on the same machine as Compose.
+
+The API process retries Postgres and Redis for about a minute before giving up, and logs each attempt (`not ready`). A single refused connection during startup does not exit the process.
+
+## Run the API on the host
+
+Use this when you want `go run` and a debugger instead of the API container. It publishes Postgres and Redis on **5433** and **6380** (loopback only), which stay out of the way of anything already bound to 5432 and 6379.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ports.yml up -d db redis
+```
+
+Override the host ports if those are taken too:
+
+```bash
+DB_HOST_PORT=5434 REDIS_HOST_PORT=6381 \
+  docker compose -f docker-compose.yml -f docker-compose.ports.yml up -d db redis
+```
+
+Then point the process at the published ports. The defaults in `internal/config` already match 5433 and 6380, so this works with no extra env when you kept the defaults:
+
+```bash
+cd backend && go run ./cmd/server
+cd frontend && npm run dev
+```
+
+If you changed `DB_HOST_PORT` or `REDIS_HOST_PORT`, set the URLs to the same numbers:
+
+```bash
+DATABASE_URL=postgres://logistic:logistic@127.0.0.1:5434/logistic?sslmode=disable \
+REDIS_URL=redis://127.0.0.1:6381/0 \
+  go run ./cmd/server
+```
+
+Do not put `127.0.0.1` into the API container. Inside Compose the hostnames are `db` and `redis`, and `docker-compose.yml` sets that itself.
 
 ## Tests and a local frontend build
 
@@ -55,14 +90,7 @@ cd frontend && npm install && npm run build
 
 Or `make test`.
 
-To run the API on the host instead of in a container, start only `db` and `redis` from Compose, then:
-
-```bash
-cd backend && go run ./cmd/server
-cd frontend && npm run dev
-```
-
-The API reads `DATABASE_URL`, `REDIS_URL`, `HTTP_ADDR`, `CORS_ORIGINS`, and `MIGRATIONS_DIR`. Defaults match the published Compose ports. See `.env.example`.
+The API reads `DATABASE_URL`, `REDIS_URL`, `HTTP_ADDR`, `CORS_ORIGINS`, and `MIGRATIONS_DIR`. See `.env.example`.
 
 ## Layout
 

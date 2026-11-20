@@ -1,0 +1,17 @@
+# Optional host ports for Postgres and Redis.
+# The main compose file does not publish them. Include this file only
+# when a process on the host (usually `go run`) must connect.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ports.yml up -d db redis
+#
+# Defaults are 5433 and 6380 so they do not collide with a Postgres or
+# Redis already bound to 5432 and 6379. Override with DB_HOST_PORT and
+# REDIS_HOST_PORT. Listen on loopback only.
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"

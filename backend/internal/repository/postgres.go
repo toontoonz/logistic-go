@@ -12,11 +12,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/toontoonz/logistic-go/backend/internal/boot"
 )
 
-// NewPool dials Postgres, retrying for a bit. Compose starts the API
-// container in parallel with the database, and the first pings fail
-// until Postgres has finished its own startup.
+// NewPool dials Postgres, retrying for about a minute. depends_on can
+// say the container is healthy before this process can open a TCP
+// connection, and the first dials fail.
 func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -24,26 +25,23 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	}
 	cfg.MaxConns = 10
 
-	var last error
-	for attempt := 1; attempt <= 30; attempt++ {
-		pool, err := pgxpool.NewWithConfig(ctx, cfg)
-		if err == nil {
-			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			err = pool.Ping(pingCtx)
-			cancel()
-			if err == nil {
-				return pool, nil
-			}
-			pool.Close()
+	var pool *pgxpool.Pool
+	err = boot.UntilReady(ctx, "postgres", 40, time.Second, func(pingCtx context.Context) error {
+		next, err := pgxpool.NewWithConfig(pingCtx, cfg)
+		if err != nil {
+			return err
 		}
-		last = err
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Second):
+		if err := next.Ping(pingCtx); err != nil {
+			next.Close()
+			return err
 		}
+		pool = next
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("connect postgres: %w", last)
+	return pool, nil
 }
 
 // Migrate applies *.sql files in lexical order, once each.

@@ -10,6 +10,7 @@ import (
 
 	json "github.com/goccy/go-json"
 	"github.com/redis/go-redis/v9"
+	"github.com/toontoonz/logistic-go/backend/internal/boot"
 	"github.com/toontoonz/logistic-go/backend/internal/model"
 )
 
@@ -28,24 +29,14 @@ func New(ctx context.Context, redisURL string) (*Positions, error) {
 	}
 	client := redis.NewClient(opts)
 
-	var last error
-	for attempt := 1; attempt <= 30; attempt++ {
-		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		err = client.Ping(pingCtx).Err()
-		cancel()
-		if err == nil {
-			return &Positions{client: client}, nil
-		}
-		last = err
-		select {
-		case <-ctx.Done():
-			_ = client.Close()
-			return nil, ctx.Err()
-		case <-time.After(time.Second):
-		}
+	err = boot.UntilReady(ctx, "redis", 40, time.Second, func(pingCtx context.Context) error {
+		return client.Ping(pingCtx).Err()
+	})
+	if err != nil {
+		_ = client.Close()
+		return nil, err
 	}
-	_ = client.Close()
-	return nil, fmt.Errorf("connect redis: %w", last)
+	return &Positions{client: client}, nil
 }
 
 // Close releases the connection pool.

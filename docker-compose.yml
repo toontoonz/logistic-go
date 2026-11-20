@@ -1,5 +1,11 @@
 name: lane
 
+# Postgres and Redis are reachable only on this network, as the hostnames
+# `db` and `redis`. They are not published on the host, so a database you
+# already run on 5432 or 6379 cannot steal the bind and leave these
+# containers with no network. To publish them for `go run` on the host,
+# add docker-compose.ports.yml (see the README).
+
 services:
   db:
     image: postgis/postgis:16-3.4
@@ -7,8 +13,6 @@ services:
       POSTGRES_USER: logistic
       POSTGRES_PASSWORD: logistic
       POSTGRES_DB: logistic
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +23,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s

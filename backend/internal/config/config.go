@@ -7,8 +7,12 @@ import (
 	"strings"
 )
 
-// Config is everything the process needs to boot. Defaults target a
-// database and Redis published on localhost by docker compose.
+// Config is everything the process needs to boot.
+//
+// The localhost defaults match docker-compose.ports.yml (5433 and 6380),
+// not 5432 and 6379. Those two are often already taken on a dev machine.
+// Compose itself does not use these defaults: the backend container sets
+// DATABASE_URL and REDIS_URL to the hostnames db and redis.
 type Config struct {
 	DatabaseURL   string
 	RedisURL      string
@@ -21,8 +25,8 @@ type Config struct {
 // not a signal to guess a production host.
 func Load() (Config, error) {
 	cfg := Config{
-		DatabaseURL:   getenv("DATABASE_URL", "postgres://logistic:logistic@localhost:5432/logistic?sslmode=disable"),
-		RedisURL:      getenv("REDIS_URL", "redis://localhost:6379/0"),
+		DatabaseURL:   getenv("DATABASE_URL", "postgres://logistic:logistic@127.0.0.1:5433/logistic?sslmode=disable"),
+		RedisURL:      getenv("REDIS_URL", "redis://127.0.0.1:6380/0"),
 		HTTPAddr:      getenv("HTTP_ADDR", ":8080"),
 		MigrationsDir: getenv("MIGRATIONS_DIR", "migrations"),
 	}
